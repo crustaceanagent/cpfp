@@ -10,4 +10,5 @@ bdk_kyoto = "0.16.0"
 bdk_wallet = "3.0.0"
 bip39 = "2.2.2"
 bitcoin = "0.32.8"
+hex = "0.4.3"
 tokio = { version = "1.52.1", features = ["full"] }

@@ -1,7 +1,8 @@
 use bdk_wallet::bitcoin::bip32::{ChildNumber, Xpriv};
 use bdk_wallet::bitcoin::secp256k1::Secp256k1;
-use bdk_wallet::bitcoin::Network;
-use bdk_wallet::{KeychainKind, Wallet};
+use bdk_wallet::bitcoin::{Network, ScriptBuf};
+use bdk_wallet::bitcoin::amount::Amount;
+use bdk_wallet::{KeychainKind, Wallet, SignOptions};
 use bdk_kyoto::builder::{Builder, BuilderExt};
 use bdk_kyoto::ScanType;
 use std::net::SocketAddr;
@@ -85,6 +86,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Wallet synced!");
     println!("Balance: {}", wallet.balance());
+
+    // Build transaction with OP_RETURN
+    println!("\n[*] Building transaction with OP_RETURN...");
+
+    // Create OP_RETURN script with some data
+    let op_return_data = b"CPFP - Child Pays For Parent";
+    let op_return_script = ScriptBuf::new_op_return(op_return_data);
+
+    // Build transaction step by step
+    let mut builder = wallet.build_tx();
+    builder.add_recipient(op_return_script, Amount::from_sat(1000));
+    builder.fee_rate(bdk_wallet::bitcoin::FeeRate::from_sat_per_vb(1).unwrap());
+    let mut psbt = builder.finish()?;
+
+    // Get transaction details
+    let tx = &psbt.unsigned_tx;
+    let input_count = tx.input.len();
+    let output_count = tx.output.len();
+
+    // Print transaction metadata
+    println!("\n=== Transaction Metadata ===");
+    println!("Transaction ID: {}", tx.compute_txid());
+    println!("Inputs: {}", input_count);
+    println!("Outputs: {}", output_count);
+    println!();
+
+    for (i, output) in tx.output.iter().enumerate() {
+        println!("Output {}:", i);
+        println!("  Value: {} sats ({} BTC)", output.value, output.value.to_btc());
+        println!("  Script: {:?}", output.script_pubkey);
+        if output.script_pubkey.is_op_return() {
+            println!("  Type: OP_RETURN");
+        } else {
+            println!("  Type: Standard (change)");
+        }
+        println!();
+    }
+
+    // Sign the transaction
+    let sign_result = wallet.sign(&mut psbt, SignOptions::default())?;
+
+    println!("\n=== Signed Transaction ===");
+    println!("Signing result: {}", sign_result);
+    println!("Transaction fully signed: {}", sign_result);
+
+    // Extract the final transaction
+    let final_tx = psbt.extract_tx()?;
+    use bdk_wallet::bitcoin::consensus::Encodable;
+    let mut bytes = Vec::new();
+    final_tx.consensus_encode(&mut bytes)?;
+    println!("\nRaw transaction (hex):");
+    println!("{}", hex::encode(bytes));
+
+    println!("\n=== Summary ===");
+    println!("Sent 1000 satoshis to OP_RETURN");
+    println!("Transaction NOT broadcast (as requested)");
 
     Ok(())
 }
