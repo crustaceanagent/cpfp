@@ -1,7 +1,8 @@
 use bdk_wallet::bitcoin::bip32::{ChildNumber, Xpriv};
 use bdk_wallet::bitcoin::secp256k1::Secp256k1;
 use bdk_wallet::bitcoin::Network;
-use bdk_wallet::KeychainKind;
+use bdk_wallet::{KeychainKind, Wallet};
+use bdk_bitcoind_rpc::bitcoincore_rpc::RpcApi;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Deterministic entropy for reproducible wallet generation
@@ -13,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let seed = mnemonic.to_seed("");
 
     // Derive the extended private key for m/84'/0'/0'
-    let ext_priv = Xpriv::new_master(Network::Bitcoin, &seed)?;
+    let ext_priv = Xpriv::new_master(Network::Regtest, &seed)?;
 
     // Derive to account level (m/84'/0'/0')
     let secp = Secp256k1::new();
@@ -37,12 +38,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Internal descriptor: {}", internal_descriptor);
 
     // Create the wallet without persistence
-    let mut wallet = bdk_wallet::Wallet::create(external_descriptor, internal_descriptor)
-        .network(Network::Bitcoin)
+    let mut wallet = Wallet::create(external_descriptor, internal_descriptor)
+        .network(Network::Regtest)
         .create_wallet_no_persist()?;
 
     println!("Wallet created successfully!");
-    println!("External address: {}", wallet.reveal_next_address(KeychainKind::External));
+    let addr = wallet.reveal_next_address(KeychainKind::External);
+    println!("External address: {}", addr);
+
+    // Sync with Bitcoin Core RPC on regtest
+    let rpc = bdk_bitcoind_rpc::bitcoincore_rpc::Auth::UserPass(
+        "bitcoin".to_string(),
+        "bitcoin".to_string(),
+    );
+    let client = bdk_bitcoind_rpc::bitcoincore_rpc::Client::new(
+        "http://127.0.0.1:18443/wallet/regtest",
+        rpc,
+    )?;
+
+    // Get current block count
+    let tip_height = client.get_block_count()?;
+    println!("Syncing from genesis to height {}...", tip_height);
+
+    // Sync blocks from genesis
+    for height in 0..=tip_height as u32 {
+        let block_hash = client.get_block_hash(height as u64)?;
+        let block = client.get_block(&block_hash)?;
+
+        // Apply block to wallet
+        wallet.apply_block(&block, height)?;
+    }
+
+    println!("Wallet synced!");
+    println!("Balance: {}", wallet.balance());
 
     Ok(())
 }
