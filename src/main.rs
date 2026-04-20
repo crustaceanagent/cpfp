@@ -4,6 +4,7 @@ use bdk_wallet::bitcoin::Network;
 use bdk_wallet::{KeychainKind, Wallet};
 use bdk_kyoto::builder::{Builder, BuilderExt};
 use bdk_kyoto::ScanType;
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,8 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = wallet.reveal_next_address(KeychainKind::External);
     println!("External address: {}", addr);
 
-    // Build the light client using bdk_kyoto
-    let client = Builder::new(Network::Regtest).build_with_wallet(&wallet, ScanType::Sync)?;
+    // Build the light client using bdk_kyoto with local bitcoind as peer
+    let local_peer: SocketAddr = "127.0.0.1:18444".parse()?;
+    let client = Builder::new(Network::Regtest)
+        .add_peer(local_peer)
+        .build_with_wallet(&wallet, ScanType::Sync)?;
 
     let (client, _, mut update_subscriber) = client.subscribe();
     client.start();
@@ -57,19 +61,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Syncing via P2P network...");
 
     // Wait for sync to complete
-    loop {
-        tokio::select! {
-            update = update_subscriber.update() => {
-                let update = update?;
-                wallet.apply_update(update)?;
-                break;
-            }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
-                println!("Timeout waiting for sync");
-                break;
-            }
-        }
-    }
+    let update = tokio::time::timeout(
+        tokio::time::Duration::from_secs(60),
+        update_subscriber.update()
+    ).await??;
+
+    wallet.apply_update(update)?;
 
     println!("Wallet synced!");
     println!("Balance: {}", wallet.balance());
