@@ -5,6 +5,7 @@ use bdk_wallet::{KeychainKind, Wallet};
 use bdk_kyoto::builder::{Builder, BuilderExt};
 use bdk_kyoto::ScanType;
 use std::net::SocketAddr;
+use std::process::Command;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,7 +48,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Wallet created successfully!");
     let addr = wallet.reveal_next_address(KeychainKind::External);
-    println!("External address: {}", addr);
+    let address = addr.address.to_string();
+    println!("External address: {}", address);
+
+    // Mine blocks to the address
+    println!("\n[*] Mining blocks to address...");
+    let output = Command::new("./mine_blocks.sh")
+        .arg(&address)
+        .output()?;
+
+    if !output.status.success() {
+        eprintln!("Error running mine_blocks.sh:");
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    } else {
+        println!("{}", String::from_utf8_lossy(&output.stdout));
+    }
 
     // Build the light client using bdk_kyoto with local bitcoind as peer
     let local_peer: SocketAddr = "127.0.0.1:18444".parse()?;
