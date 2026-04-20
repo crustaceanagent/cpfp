@@ -87,61 +87,99 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Wallet synced!");
     println!("Balance: {}", wallet.balance());
 
-    // Build transaction with OP_RETURN
-    println!("\n[*] Building transaction with OP_RETURN...");
+    // === PARENT TRANSACTION ===
+    println!("\n[*] Building parent transaction with OP_RETURN...");
 
-    // Create OP_RETURN script with some data
     let op_return_data = b"CPFP - Child Pays For Parent";
     let op_return_script = ScriptBuf::new_op_return(op_return_data);
 
-    // Build transaction step by step
     let mut builder = wallet.build_tx();
     builder.add_recipient(op_return_script, Amount::from_sat(1000));
     builder.fee_rate(bdk_wallet::bitcoin::FeeRate::from_sat_per_vb(1).unwrap());
     let mut psbt = builder.finish()?;
 
-    // Get transaction details
-    let tx = &psbt.unsigned_tx;
-    let input_count = tx.input.len();
-    let output_count = tx.output.len();
+    let sign_result = wallet.sign(&mut psbt, SignOptions::default())?;
+    println!("Parent transaction signed: {}", sign_result);
 
-    // Print transaction metadata
-    println!("\n=== Transaction Metadata ===");
-    println!("Transaction ID: {}", tx.compute_txid());
-    println!("Inputs: {}", input_count);
-    println!("Outputs: {}", output_count);
+    // Get the change output from parent transaction (this will be spent by child)
+    // Output 0 is the change output
+    let change_value = psbt.unsigned_tx.output[0].value;
+    println!("Change output value: {} sats", change_value);
+
+    // === CHILD TRANSACTION ===
+    // Spend the change output from the parent transaction
+    println!("\n[*] Building child transaction (CPFP) to spend change output...");
+
+    // Get the UTXOs from the wallet
+    let unspents: Vec<_> = wallet.list_unspent().collect();
+    println!("Available UTXOs: {}", unspents.len());
+
+    // Find the change UTXO (the one with the largest value - our change output)
+    let change_utxo = unspents.iter().max_by_key(|u| u.txout.value).unwrap();
+    println!("Using UTXO: {} sats", change_utxo.txout.value);
+    println!("  OutPoint: {}", change_utxo.outpoint);
+    println!("  Script: {:?}", change_utxo.txout.script_pubkey);
+
+    // Get a new internal address for the child transaction recipient
+    let child_recipient = wallet.reveal_next_address(KeychainKind::Internal);
+    let child_recipient_script = child_recipient.address.script_pubkey();
+
+    // Build child transaction spending the change UTXO
+    let mut child_builder = wallet.build_tx();
+    child_builder.add_utxo(change_utxo.outpoint)?;
+    child_builder.manually_selected_only();
+    child_builder.add_recipient(child_recipient_script, Amount::from_sat(1000));
+    child_builder.fee_rate(bdk_wallet::bitcoin::FeeRate::from_sat_per_vb(5).unwrap());  // 5 sat/vB
+    let mut child_psbt = child_builder.finish()?;
+
+    let child_sign_result = wallet.sign(&mut child_psbt, SignOptions::default())?;
+    println!("\n=== Child Transaction Metadata ===");
+    println!("Signing result: {}", child_sign_result);
+
+    let child_tx = &child_psbt.unsigned_tx;
+    println!("Transaction ID: {}", child_tx.compute_txid());
+    println!("Inputs: {}", child_tx.input.len());
+    println!("Outputs: {}", child_tx.output.len());
     println!();
 
-    for (i, output) in tx.output.iter().enumerate() {
+    for (i, output) in child_tx.output.iter().enumerate() {
         println!("Output {}:", i);
         println!("  Value: {} sats ({} BTC)", output.value, output.value.to_btc());
         println!("  Script: {:?}", output.script_pubkey);
         if output.script_pubkey.is_op_return() {
             println!("  Type: OP_RETURN");
         } else {
-            println!("  Type: Standard (change)");
+            println!("  Type: Standard");
         }
         println!();
     }
 
-    // Sign the transaction
-    let sign_result = wallet.sign(&mut psbt, SignOptions::default())?;
+    println!("Fee rate: 5 sat/vB");
 
-    println!("\n=== Signed Transaction ===");
-    println!("Signing result: {}", sign_result);
-    println!("Transaction fully signed: {}", sign_result);
-
-    // Extract the final transaction
-    let final_tx = psbt.extract_tx()?;
+    // Extract and display raw transaction
+    let final_child_tx = child_psbt.extract_tx()?;
     use bdk_wallet::bitcoin::consensus::Encodable;
     let mut bytes = Vec::new();
-    final_tx.consensus_encode(&mut bytes)?;
-    println!("\nRaw transaction (hex):");
+    final_child_tx.consensus_encode(&mut bytes)?;
+    println!("Raw transaction (hex):");
     println!("{}", hex::encode(bytes));
 
     println!("\n=== Summary ===");
-    println!("Sent 1000 satoshis to OP_RETURN");
+    println!("Child transaction spends the change output from parent");
+    println!("Fee rate: 5 sat/vB (higher than parent's 1 sat/vB)");
     println!("Transaction NOT broadcast (as requested)");
+
+    // === STOP BITCOIND ===
+    println!("\n[*] Stopping bitcoind...");
+    let stop_output = Command::new("bitcoin-cli")
+        .args(["-regtest", "-rpcport=18444", "stop"])
+        .output()?;
+
+    if stop_output.status.success() {
+        println!("bitcoind stopped successfully");
+    } else {
+        eprintln!("Error stopping bitcoind: {}", String::from_utf8_lossy(&stop_output.stderr));
+    }
 
     Ok(())
 }
