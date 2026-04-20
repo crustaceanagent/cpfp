@@ -33,7 +33,12 @@ echo "[*] Starting bitcoind in regtest mode with full debug logging..."
     -rpcport="${RPC_PORT}" \
     -fallbackfee=1.0 \
     -maxtxfee=1.1 \
-    -server=1
+    -server=1 \
+    -blockfilterindex=1 \
+    -peerblockfilters=1 \
+    -peerbloomfilters=1 \
+    -listen=1 \
+    -bind=0.0.0.0:18433
 
 # --- Wait for bitcoind to become ready ---
 echo "[*] Waiting for bitcoind to be ready..."

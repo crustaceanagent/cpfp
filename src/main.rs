@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Build the light client using bdk_kyoto with local bitcoind as peer
-    let local_peer: SocketAddr = "127.0.0.1:18444".parse()?;
+    let local_peer: SocketAddr = "127.0.0.1:18433".parse()?;
     let client = Builder::new(Network::Regtest)
         .add_peer(local_peer)
         .build_with_wallet(&wallet, ScanType::Sync)?;
