@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 base58 = "0.2.0"
 bdk_bitcoind_rpc = "0.22.0"
+bdk_kyoto = "0.16.0"
 bdk_wallet = "3.0.0"
 bip39 = "2.2.2"
 bitcoin = "0.32.8"
+tokio = { version = "1.52.1", features = ["full"] }

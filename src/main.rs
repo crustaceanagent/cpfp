@@ -2,9 +2,11 @@ use bdk_wallet::bitcoin::bip32::{ChildNumber, Xpriv};
 use bdk_wallet::bitcoin::secp256k1::Secp256k1;
 use bdk_wallet::bitcoin::Network;
 use bdk_wallet::{KeychainKind, Wallet};
-use bdk_bitcoind_rpc::bitcoincore_rpc::RpcApi;
+use bdk_kyoto::builder::{Builder, BuilderExt};
+use bdk_kyoto::ScanType;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Deterministic entropy for reproducible wallet generation
     let entropy = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -46,27 +48,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = wallet.reveal_next_address(KeychainKind::External);
     println!("External address: {}", addr);
 
-    // Sync with Bitcoin Core RPC on regtest
-    let rpc = bdk_bitcoind_rpc::bitcoincore_rpc::Auth::UserPass(
-        "bitcoin".to_string(),
-        "bitcoin".to_string(),
-    );
-    let client = bdk_bitcoind_rpc::bitcoincore_rpc::Client::new(
-        "http://127.0.0.1:18443/wallet/regtest",
-        rpc,
-    )?;
+    // Build the light client using bdk_kyoto
+    let client = Builder::new(Network::Regtest).build_with_wallet(&wallet, ScanType::Sync)?;
 
-    // Get current block count
-    let tip_height = client.get_block_count()?;
-    println!("Syncing from genesis to height {}...", tip_height);
+    let (client, _, mut update_subscriber) = client.subscribe();
+    client.start();
 
-    // Sync blocks from genesis
-    for height in 0..=tip_height as u32 {
-        let block_hash = client.get_block_hash(height as u64)?;
-        let block = client.get_block(&block_hash)?;
+    println!("Syncing via P2P network...");
 
-        // Apply block to wallet
-        wallet.apply_block(&block, height)?;
+    // Wait for sync to complete
+    loop {
+        tokio::select! {
+            update = update_subscriber.update() => {
+                let update = update?;
+                wallet.apply_update(update)?;
+                break;
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
+                println!("Timeout waiting for sync");
+                break;
+            }
+        }
     }
 
     println!("Wallet synced!");
