@@ -85,8 +85,6 @@ dependencies = [
 [[package]]
 name = "bdk_kyoto"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa6765bbb7d82c0b99ddd13d583b1157137b9e6a6ba3593bbbf75897599f3895"
 dependencies = [
  "bdk_wallet",
  "bip157",
@@ -115,8 +113,7 @@ checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
 [[package]]
 name = "bip157"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8af7987396c76633777e335345347395cd383b46bd95c1534691ab717859482e"
+source = "git+https://github.com/rustaceanrob/kyoto?rev=80e22998ff25e4c344f636c25b47a99a2abf8e14#80e22998ff25e4c344f636c25b47a99a2abf8e14"
 dependencies = [
  "bip324",
  "bitcoin",

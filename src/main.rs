@@ -1,3 +1,4 @@
+use bdk_kyoto::bip157::Package;
 use bdk_kyoto::builder::{Builder, BuilderExt};
 use bdk_kyoto::ScanType;
 use bdk_wallet::bitcoin::amount::Amount;
@@ -72,7 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_with_wallet(&wallet, ScanType::Sync)?;
 
     let (client, _, mut update_subscriber) = client.subscribe();
-    client.start();
+    let active = client.start();
+    let requester = active.requester();
 
     println!("Syncing via P2P network...");
 
@@ -148,7 +150,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let child_recipient = wallet.reveal_next_address(KeychainKind::Internal);
     let child_recipient_script = child_recipient.address.script_pubkey();
 
-    println!("Using OutPoint: {bumping_outpoint}");
     // Build child transaction spending the change UTXO
     let mut child_builder = wallet.build_tx();
     child_builder.add_utxo(bumping_outpoint)?;
@@ -162,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Signing result: {}", child_sign_result);
 
     let child_tx = &child_psbt.unsigned_tx;
-    println!("Transaction ID: {}", child_tx.compute_txid());
+    println!("TXID: {}", child_tx.compute_txid());
     println!("Inputs: {}", child_tx.input.len());
     println!("Outputs: {}", child_tx.output.len());
     println!();
@@ -188,6 +189,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!();
     }
+    let child = child_psbt.extract_tx().unwrap();
+    println!("Child WTXID: {}", child.compute_wtxid());
+    println!();
+    let package = Package::new_one_parent_one_child(parent, child).unwrap();
+
+    println!("Broadcasting package...");
+    let wtxid = requester.submit_package(package).await.unwrap();
+    println!("Broadcast confirmed {wtxid}");
 
     // === STOP BITCOIND ===
     println!("\n[*] Stopping bitcoind...");
